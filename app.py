@@ -109,7 +109,7 @@ def create_complete_watermark(image, time_str, date_day_str, location, temp_c="3
         
         # Font settings
         try:
-            font_large = ImageFont.truetype("arial.ttf", 50)
+            font_large = ImageFont.truetype("arial.ttf", 140)
             font_medium = ImageFont.truetype("arial.ttf", 40)
             font_small = ImageFont.truetype("arial.ttf", 23)
             font_bold = ImageFont.truetype("arialbd.ttf", 30)
