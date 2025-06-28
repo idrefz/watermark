@@ -85,11 +85,21 @@ def get_map_url(latitude, longitude, api_key=None):
         return f"https://www.openstreetmap.org/export/embed.html?bbox={float(longitude)-0.01},{float(latitude)-0.01},{float(longitude)+0.01},{float(latitude)+0.01}&layer=mapnik&marker={latitude},{longitude}"
 
 # Fungsi untuk mengupdate metadata EXIF
-def update_exif_metadata(image, datetime_original, latitude, longitude):
+def update_exif_metadata(image_file, datetime_original, latitude, longitude):
     """Update EXIF metadata with new datetime and GPS coordinates"""
     try:
-        # Cek apakah gambar sudah memiliki EXIF data
-        exif_dict = piexif.load(image.info.get('exif', b''))
+        # Read the file content first
+        image_bytes = image_file.getvalue()
+        
+        # Handle both file paths and file-like objects
+        if isinstance(image_bytes, bytes):
+            exif_dict = piexif.load(image_bytes)
+        else:
+            # If it's already a PIL Image (from previous processing)
+            if hasattr(image_file, 'info'):
+                exif_dict = piexif.load(image_file.info.get('exif', b''))
+            else:
+                exif_dict = {"0th": {}, "Exif": {}, "GPS": {}, "1st": {}}
         
         # Format tanggal/waktu untuk EXIF (YYYY:MM:DD HH:MM:SS)
         exif_datetime = datetime_original.strftime("%Y:%m:%d %H:%M:%S")
@@ -126,7 +136,7 @@ def update_exif_metadata(image, datetime_original, latitude, longitude):
         exif_bytes = piexif.dump(exif_dict)
         return exif_bytes
     
-    except (InvalidImageDataError, ValueError) as e:
+    except (InvalidImageDataError, ValueError, AttributeError) as e:
         st.warning(f"Tidak bisa memodifikasi metadata EXIF: {str(e)}")
         return None
 
