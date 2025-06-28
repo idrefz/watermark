@@ -7,42 +7,48 @@ import textwrap
 import piexif
 from piexif._exceptions import InvalidImageDataError
 
-# Fungsi untuk mendapatkan alamat lengkap dari koordinat
+# Fungsi untuk mendapatkan alamat lengkap dengan penanganan error
 def get_complete_address(latitude, longitude):
     try:
-        url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={latitude}&lon={longitude}&addressdetails=1"
+        # Pastikan latitude dan longitude adalah angka
+        lat_num = float(latitude)
+        lon_num = float(longitude)
+        
+        url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={lat_num}&lon={lon_num}&addressdetails=1"
         headers = {'User-Agent': 'WatermarkApp/1.0'}
+        
         response = requests.get(url, headers=headers)
+        response.raise_for_status()  # Akan raise error untuk status code 4xx/5xx
         data = response.json()
         
         if 'address' in data:
             address = data.get('address', {})
-            
-            # Format alamat lengkap
             address_lines = []
             
-            # Bagian jalan dan bangunan
-            if address.get('road'):
-                address_lines.append(f"Jl. {address['road']}")
+            # Bangunan dan jalan
             if address.get('building'):
                 address_lines.append(f"Gedung {address['building']}")
+            if address.get('road'):
+                address_lines.append(f"Jl. {address['road']}")
             
-            # Bagian wilayah administratif
+            # Area administratif
             if address.get('village'):
                 address_lines.append(f"Kel. {address['village']}")
             elif address.get('suburb'):
                 address_lines.append(f"Kel. {address['suburb']}")
             
-            if address.get('subdistrict') or address.get('county'):
-                address_lines.append(f"Kec. {address.get('subdistrict', address.get('county', ''))}")
+            if address.get('subdistrict'):
+                address_lines.append(f"Kec. {address['subdistrict']}")
+            elif address.get('county'):
+                address_lines.append(f"Kec. {address['county']}")
             
             if address.get('city'):
                 address_lines.append(f"Kota {address['city']}")
-            elif address.get('state_district'):
-                address_lines.append(address['state_district'])
+            elif address.get('town'):
+                address_lines.append(f"Kota {address['town']}")
             
-            if address.get('province'):
-                address_lines.append(f"Prov. {address['province']}")
+            if address.get('state'):
+                address_lines.append(f"Prov. {address['state']}")
             
             if address.get('postcode'):
                 address_lines.append(f"Kode Pos: {address['postcode']}")
@@ -50,26 +56,40 @@ def get_complete_address(latitude, longitude):
             if address.get('country'):
                 address_lines.append(address['country'])
             
-            # Tambahkan koordinat sebagai referensi
-            address_lines.append(f"Koordinat: {latitude:.6f}, {longitude:.6f}")
+            # Format koordinat dengan pengecekan numerik
+            try:
+                coord_text = f"Koordinat: {lat_num:.6f}, {lon_num:.6f}"
+                address_lines.append(coord_text)
+            except:
+                address_lines.append(f"Koordinat: {latitude}, {longitude}")
             
-            return "\n".join(address_lines)
+            return "\n".join([line for line in address_lines if line.strip()])
+        
         return f"Koordinat: {latitude}, {longitude}"
+    
+    except ValueError as e:
+        return f"Error: Koordinat tidak valid - {str(e)}"
+    except requests.exceptions.RequestException as e:
+        return f"Error: Gagal mendapatkan alamat - {str(e)}"
     except Exception as e:
-        st.warning(f"Gagal mendapatkan alamat: {str(e)}")
-        return f"Koordinat: {latitude}, {longitude}"
+        return f"Error: {str(e)}"
 
-# Fungsi untuk mendapatkan peta dari OpenStreetMap
+# Fungsi untuk mendapatkan peta dengan penanganan error
 def get_osm_map(latitude, longitude, zoom=16, size=(600, 300)):
     try:
-        url = f"https://static-maps.yandex.ru/1.x/?ll={longitude},{latitude}&z={zoom}&size={size[0]},{size[1]}&l=map&pt={longitude},{latitude},pm2rdl"
-        response = requests.get(url)
+        # Pastikan koordinat numerik
+        lat_num = float(latitude)
+        lon_num = float(longitude)
+        
+        url = f"https://static-maps.yandex.ru/1.x/?ll={lon_num},{lat_num}&z={zoom}&size={size[0]},{size[1]}&l=map&pt={lon_num},{lat_num},pm2rdl"
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
         return Image.open(BytesIO(response.content))
     except Exception as e:
         st.warning(f"Gagal memuat peta: {str(e)}")
         return None
 
-# Fungsi untuk membuat watermark dengan alamat lengkap
+# Fungsi utama untuk membuat watermark
 def create_complete_watermark(image, time_str, date_day_str, location, temp_c="33°C", temp_f="91°F", map_img=None):
     try:
         img = image.copy()
@@ -77,113 +97,109 @@ def create_complete_watermark(image, time_str, date_day_str, location, temp_c="3
             img = img.convert('RGB')
             
         draw = ImageDraw.Draw(img)
-        
-        # Hitung ukuran watermark (35% dari tinggi gambar untuk alamat panjang)
         wm_height = int(img.height * 0.35)
         wm_position = (0, img.height - wm_height, img.width, img.height)
         
-        # Buat background semi-transparan gelap
+        # Background watermark
         overlay = Image.new('RGBA', img.size, (0,0,0,0))
         draw_overlay = ImageDraw.Draw(overlay)
-        draw_overlay.rectangle(wm_position, fill=(0,0,0,160))  # Sedikit lebih transparan
+        draw_overlay.rectangle(wm_position, fill=(0,0,0,160))
         img = Image.alpha_composite(img.convert('RGBA'), overlay).convert('RGB')
         draw = ImageDraw.Draw(img)
         
-        # Gunakan font (default atau custom)
+        # Font settings
         try:
             font_large = ImageFont.truetype("arial.ttf", 36)
-            font_medium = ImageFont.truetype("arial.ttf", 22)  # Lebih kecil untuk alamat panjang
+            font_medium = ImageFont.truetype("arial.ttf", 22)
             font_small = ImageFont.truetype("arial.ttf", 16)
-            font_bold = ImageFont.truetype("arialbd.ttf", 26)  # Lebih kecil untuk judul
+            font_bold = ImageFont.truetype("arialbd.ttf", 26)
         except:
             font_large = ImageFont.load_default()
             font_medium = ImageFont.load_default()
             font_small = ImageFont.load_default()
             font_bold = ImageFont.load_default()
         
-        # Posisi teks
+        # Position elements
         margin = 20
         text_x = margin
         text_y = img.height - wm_height + margin
         
-        # Tulis lokasi dengan format khusus
-        loc_lines = location.split('\n')
-        max_lines = 8  # Batasi jumlah baris alamat
+        # Location text
+        loc_lines = location.split('\n')[:8]  # Limit to 8 lines
         
-        for i, line in enumerate(loc_lines[:max_lines]):
-            if i == 0:
+        for i, line in enumerate(loc_lines):
+            if i == 0 and line.strip():
                 draw.text((text_x, text_y), line, font=font_bold, fill=(255,255,255))
                 text_y += 35
-            else:
+            elif line.strip():
                 draw.text((text_x, text_y), line, font=font_small, fill=(255,255,255))
                 text_y += 20
         
-        # Garis pemisah tipis
-        draw.line((text_x, text_y+5, img.width - margin, text_y+5), fill=(255,255,255,150), width=1)
-        text_y += 15
+        # Separator line
+        if loc_lines:
+            draw.line((text_x, text_y+5, img.width - margin, text_y+5), fill=(255,255,255,150), width=1)
+            text_y += 15
         
-        # Info tanggal dan waktu
+        # Date and time
         date_time_text = f"{date_day_str}  {time_str}"
         draw.text((text_x, text_y), date_time_text, font=font_medium, fill=(255,255,255))
         
-        # Info suhu di kanan
+        # Temperature
         temp_text = f"{temp_c} / {temp_f}"
         temp_width = draw.textlength(temp_text, font=font_medium)
         draw.text((img.width - margin - temp_width, text_y), temp_text, font=font_medium, fill=(255,255,255))
-        text_y += 35
         
-        # Tambahkan peta kecil jika ada (ukuran disesuaikan)
+        # Map image
         if map_img:
             map_size = (min(220, img.width//3), min(130, wm_height//2))
             map_img = map_img.resize(map_size)
-            
-            # Hitung posisi peta agar tidak menimpa teks
             map_x = img.width - map_size[0] - margin
             map_y = img.height - wm_height + margin
             
-            # Tambahkan background untuk peta
             map_bg = Image.new('RGB', (map_size[0]+10, map_size[1]+10), (40,40,40))
             img.paste(map_bg, (map_x-5, map_y-5))
-            
             img.paste(map_img, (map_x, map_y))
         
         return img
+    
     except Exception as e:
         st.error(f"Error membuat watermark: {str(e)}")
         return image
 
 # Konfigurasi Streamlit
-st.set_page_config(page_title="Watermark Alamat Lengkap", layout="wide")
+st.set_page_config(page_title="Watermark Tool", layout="wide")
 st.title("📷 Watermark Tool dengan Alamat Lengkap")
 
-# Sidebar untuk input
 with st.sidebar:
-    st.header("Pengaturan Alamat")
+    st.header("Pengaturan")
     
-    # Input koordinat
+    # Input koordinat dengan validasi
     col1, col2 = st.columns(2)
     with col1:
-        lat = st.text_input("Latitude", "-6.1101")
+        lat = st.text_input("Latitude", "-6.1101", help="Contoh: -6.1101")
     with col2:
-        lon = st.text_input("Longitude", "106.1633")
+        lon = st.text_input("Longitude", "106.1633", help="Contoh: 106.1633")
     
-    # Dapatkan alamat lengkap otomatis
+    # Tombol dengan penanganan error
     if st.button("Dapatkan Alamat Lengkap"):
-        with st.spinner("Mengambil data alamat..."):
-            if lat and lon:
-                try:
+        if not lat or not lon:
+            st.warning("Harap masukkan latitude dan longitude")
+        else:
+            try:
+                with st.spinner("Mengambil data alamat..."):
                     address = get_complete_address(lat, lon)
-                    st.session_state.address = address
-                    st.success("Alamat berhasil didapatkan!")
-                except:
-                    st.error("Gagal mendapatkan alamat")
-            else:
-                st.warning("Masukkan koordinat terlebih dahulu")
+                    if address.startswith("Error:"):
+                        st.error(address)
+                    else:
+                        st.session_state.address = address
+                        st.success("Alamat berhasil didapatkan!")
+            except Exception as e:
+                st.error(f"Terjadi error: {str(e)}")
     
-    # Text area yang lebih besar untuk alamat lengkap
+    # Text area untuk alamat
     location = st.text_area(
         "Alamat Lengkap", 
-        st.session_state.get('address', "Jl. Contoh No. 123\nKel. Contoh\nKec. Contoh\nKota Contoh\nProv. Contoh\nKode Pos: 12345\nIndonesia"), 
+        st.session_state.get('address', "Jl. Contoh No. 123\nKel. Contoh\nKec. Contoh\nKota/Kab. Contoh\nProv. Contoh\nKode Pos: 12345\nIndonesia\nKoordinat: -6.1101, 106.1633"), 
         height=200
     )
     
@@ -196,92 +212,80 @@ with st.sidebar:
     with col2:
         time = st.time_input("Waktu", datetime.time(13, 5))
     
-    # Format tanggal dan hari
+    # Format tanggal
     days = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"]
     day_str = days[date.weekday()]
     date_day_str = f"{date.strftime('%Y-%m-%d')} ({day_str[:3]})"
-    time_str = time.strftime("%I:%M%p").lower().replace("am", "AM").replace("pm", "PM")
+    time_str = time.strftime("%I:%M%p").replace("AM", "am").replace("PM", "pm")
     
     # Suhu
     col1, col2 = st.columns(2)
     with col1:
-        temp_c = st.text_input("Suhu °C", "33")
+        temp_c = st.text_input("°C", "33")
     with col2:
-        temp_f = st.text_input("Suhu °F", "91")
+        temp_f = st.text_input("°F", "91")
     
-    # Toggle peta
     show_map = st.checkbox("Tampilkan Peta", value=True)
 
 # Upload gambar
-uploaded_file = st.file_uploader("Unggah Foto Anda", type=["jpg", "jpeg", "png"])
+uploaded_file = st.file_uploader("Unggah Foto", type=["jpg", "jpeg", "png"])
 
 if uploaded_file is not None:
-    # Baca gambar
-    image = Image.open(uploaded_file)
-    
-    # Dapatkan peta
-    map_img = None
-    if show_map and lat and lon:
-        with st.spinner("Memuat peta..."):
-            map_img = get_osm_map(lat, lon, size=(500, 250))
-    
-    # Buat watermark
-    watermarked_img = create_complete_watermark(
-        image=image,
-        time_str=time_str,
-        date_day_str=date_day_str,
-        location=location,
-        temp_c=f"{temp_c}°C",
-        temp_f=f"{temp_f}°F",
-        map_img=map_img
-    )
-    
-    # Tampilkan hasil
-    col1, col2 = st.columns(2)
-    with col1:
-        st.image(image, caption="Foto Asli", use_column_width=True)
-    with col2:
-        st.image(watermarked_img, caption="Hasil Watermark", use_column_width=True)
+    try:
+        image = Image.open(uploaded_file)
         
-        # Download
-        buf = BytesIO()
-        watermarked_img.save(buf, format="JPEG", quality=95)
-        st.download_button(
-            "Download Gambar",
-            buf.getvalue(),
-            "watermarked.jpg",
-            "image/jpeg"
+        # Dapatkan peta
+        map_img = None
+        if show_map and lat and lon:
+            with st.spinner("Memuat peta..."):
+                map_img = get_osm_map(lat, lon)
+        
+        # Buat watermark
+        watermarked_img = create_complete_watermark(
+            image=image,
+            time_str=time_str,
+            date_day_str=date_day_str,
+            location=location,
+            temp_c=f"{temp_c}°C",
+            temp_f=f"{temp_f}°F",
+            map_img=map_img
         )
+        
+        # Tampilkan hasil
+        col1, col2 = st.columns(2)
+        with col1:
+            st.image(image, caption="Original", use_column_width=True)
+        with col2:
+            st.image(watermarked_img, caption="Hasil Watermark", use_column_width=True)
+            
+            # Download
+            buf = BytesIO()
+            watermarked_img.save(buf, format="JPEG", quality=95)
+            st.download_button(
+                "Download Gambar",
+                buf.getvalue(),
+                "watermarked.jpg",
+                "image/jpeg"
+            )
+    
+    except Exception as e:
+        st.error(f"Error memproses gambar: {str(e)}")
 
-# Petunjuk penggunaan
-with st.expander("Panduan Lengkap"):
+# Panduan
+with st.expander("Panduan Penggunaan"):
     st.markdown("""
     **Cara Menggunakan:**
-    1. Unggah foto Anda
-    2. Masukkan koordinat (latitude & longitude)
-    3. Klik "Dapatkan Alamat Lengkap" untuk mengisi otomatis
-    4. Sesuaikan alamat jika diperlukan
-    5. Atur tanggal, waktu, dan suhu
-    6. Download gambar hasil
+    1. Masukkan koordinat (contoh: -6.1101, 106.1633)
+    2. Klik "Dapatkan Alamat Lengkap"
+    3. Periksa dan edit alamat jika perlu
+    4. Unggah foto
+    5. Download hasil
     
-    **Fitur Alamat Lengkap:**
-    - Menampilkan jalan, gedung/bangunan
-    - Wilayah administratif (kelurahan, kecamatan)
-    - Kota/kabupaten dan provinsi
-    - Kode pos
-    - Koordinat GPS
+    **Format Koordinat:**
+    - Latitude: -90.000000 sampai 90.000000
+    - Longitude: -180.000000 sampai 180.000000
     
-    **Catatan:**
-    - Untuk hasil terbaik, gunakan foto landscape
-    - Alamat otomatis bergantung pada data OpenStreetMap
-    - Ukuran watermark akan menyesuaikan panjang alamat
+    **Tips:**
+    - Untuk alamat lebih akurat, gunakan koordinat lengkap (6 digit desimal)
+    - Edit manual alamat jika ada yang kurang sesuai
     """)
-
-# Catatan tentang OpenStreetMap
-st.info("""
-**Informasi OpenStreetMap:**
-- Layanan gratis dan terbuka
-- Data alamat mungkin bervariasi tergantung wilayah
-- Untuk penggunaan intensif (>1 request/detik), harap gunakan server sendiri
-- Attribution: © OpenStreetMap contributors
-""")
