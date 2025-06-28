@@ -85,59 +85,61 @@ def get_map_url(latitude, longitude, api_key=None):
         return f"https://www.openstreetmap.org/export/embed.html?bbox={float(longitude)-0.01},{float(latitude)-0.01},{float(longitude)+0.01},{float(latitude)+0.01}&layer=mapnik&marker={latitude},{longitude}"
 
 # Fungsi untuk mengupdate metadata EXIF
-def update_exif_metadata(image_file, datetime_original, latitude, longitude):
+def update_exif_metadata(image_file, datetime_original, latitude=None, longitude=None):
     """Update EXIF metadata with new datetime and GPS coordinates"""
     try:
-        # Read the file content first
-        image_bytes = image_file.getvalue()
+        # Initialize empty EXIF dict
+        exif_dict = {"0th": {}, "Exif": {}, "GPS": {}, "1st": {}}
         
-        # Handle both file paths and file-like objects
-        if isinstance(image_bytes, bytes):
-            exif_dict = piexif.load(image_bytes)
-        else:
-            # If it's already a PIL Image (from previous processing)
-            if hasattr(image_file, 'info'):
+        # Handle different input types
+        if hasattr(image_file, 'getvalue'):  # Streamlit UploadedFile object
+            try:
+                exif_dict = piexif.load(image_file.getvalue())
+            except:
+                exif_dict = {"0th": {}, "Exif": {}, "GPS": {}, "1st": {}}
+        elif hasattr(image_file, 'info'):  # PIL Image object
+            try:
                 exif_dict = piexif.load(image_file.info.get('exif', b''))
-            else:
+            except:
                 exif_dict = {"0th": {}, "Exif": {}, "GPS": {}, "1st": {}}
         
-        # Format tanggal/waktu untuk EXIF (YYYY:MM:DD HH:MM:SS)
+        # Format datetime for EXIF (YYYY:MM:DD HH:MM:SS)
         exif_datetime = datetime_original.strftime("%Y:%m:%d %H:%M:%S")
         
-        # Update DateTimeOriginal
+        # Update DateTime fields
         exif_dict['0th'][piexif.ImageIFD.DateTime] = exif_datetime
         exif_dict['Exif'][piexif.ExifIFD.DateTimeOriginal] = exif_datetime
         exif_dict['Exif'][piexif.ExifIFD.DateTimeDigitized] = exif_datetime
         
-        # Tambahkan GPS info jika koordinat valid
-        if latitude and longitude:
-            lat_deg = abs(float(latitude))
-            lon_deg = abs(float(longitude))
-            
-            lat_ref = 'N' if float(latitude) >= 0 else 'S'
-            lon_ref = 'E' if float(longitude) >= 0 else 'W'
-            
-            # Konversi ke format EXIF (degrees, minutes, seconds)
-            exif_dict['GPS'][piexif.GPSIFD.GPSLatitude] = [
-                (int(lat_deg), 1),
-                (int((lat_deg % 1) * 60), 1),
-                (int((((lat_deg % 1) * 60) % 1) * 60 * 100), 100)
-            ]
-            exif_dict['GPS'][piexif.GPSIFD.GPSLongitude] = [
-                (int(lon_deg), 1),
-                (int((lon_deg % 1) * 60), 1),
-                (int((((lon_deg % 1) * 60) % 1) * 60 * 100), 100)
-            ]
-            exif_dict['GPS'][piexif.GPSIFD.GPSLatitudeRef] = lat_ref
-            exif_dict['GPS'][piexif.GPSIFD.GPSLongitudeRef] = lon_ref
-            exif_dict['GPS'][piexif.GPSIFD.GPSVersionID] = (2, 2, 0, 0)
+        # Add GPS info if valid coordinates provided
+        if latitude is not None and longitude is not None:
+            try:
+                lat_deg = abs(float(latitude))
+                lon_deg = abs(float(longitude))
+                
+                lat_ref = 'N' if float(latitude) >= 0 else 'S'
+                lon_ref = 'E' if float(longitude) >= 0 else 'W'
+                
+                exif_dict['GPS'][piexif.GPSIFD.GPSLatitude] = [
+                    (int(lat_deg), 1),
+                    (int((lat_deg % 1) * 60), 1),
+                    (int((((lat_deg % 1) * 60) % 1) * 60 * 100), 100)
+                ]
+                exif_dict['GPS'][piexif.GPSIFD.GPSLongitude] = [
+                    (int(lon_deg), 1),
+                    (int((lon_deg % 1) * 60), 1),
+                    (int((((lon_deg % 1) * 60) % 1) * 60 * 100), 100)
+                ]
+                exif_dict['GPS'][piexif.GPSIFD.GPSLatitudeRef] = lat_ref
+                exif_dict['GPS'][piexif.GPSIFD.GPSLongitudeRef] = lon_ref
+                exif_dict['GPS'][piexif.GPSIFD.GPSVersionID] = (2, 2, 0, 0)
+            except ValueError:
+                st.warning("Invalid GPS coordinates provided")
         
-        # Konversi kembali ke bytes EXIF
-        exif_bytes = piexif.dump(exif_dict)
-        return exif_bytes
+        return piexif.dump(exif_dict)
     
-    except (InvalidImageDataError, ValueError, AttributeError) as e:
-        st.warning(f"Tidak bisa memodifikasi metadata EXIF: {str(e)}")
+    except Exception as e:
+        st.warning(f"Could not update EXIF metadata: {str(e)}")
         return None
 
 # Konfigurasi halaman Streamlit
@@ -187,25 +189,35 @@ with st.sidebar:
 uploaded_file = st.file_uploader("Upload foto Anda", type=["jpg", "jpeg", "png"])
 
 if uploaded_file is not None:
-    # Baca gambar
-    image = Image.open(uploaded_file)
-    
-    # Tampilkan gambar asli
-    st.subheader("Preview")
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.image(image, caption="Gambar Asli", use_column_width=True)
-    
-    # Generate map URL jika koordinat valid
-    map_url = None
-    if show_map and latitude and longitude:
-        try:
-            # Ganti dengan API key Anda jika menggunakan Google Maps
-            map_url = get_map_url(latitude, longitude, api_key=None)
-        except:
-            st.error("Koordinat tidak valid")
-    
+    try:
+        # First create the watermarked image
+        watermarked_img = create_watermark(...)
+        
+        # Then handle EXIF metadata
+        exif_bytes = None
+        if enable_geotag:
+            # Get the original file bytes for EXIF processing
+            uploaded_file.seek(0)  # Rewind the file pointer
+            exif_bytes = update_exif_metadata(
+                image_file=uploaded_file,
+                datetime_original=datetime_combined,
+                latitude=latitude if latitude and longitude else None,
+                longitude=longitude if latitude and longitude else None
+            )
+        
+        # Save the final image
+        buf = BytesIO()
+        watermarked_img.save(
+            buf,
+            format="JPEG",
+            quality=95,
+            exif=exif_bytes if exif_bytes else watermarked_img.info.get('exif')
+        )
+        byte_im = buf.getvalue()
+        
+    except Exception as e:
+        st.error(f"Error processing image: {str(e)}")
+        
     # Buat watermark
     watermarked_img = create_watermark(
         image, 
