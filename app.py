@@ -6,85 +6,75 @@ from io import BytesIO
 import textwrap
 import piexif
 from piexif._exceptions import InvalidImageDataError
-import os
 
 # Fungsi untuk membuat watermark
 def create_watermark(image, time_str, date_str, day_str, location, name, map_url=None):
-    img = image.copy()
-    
-    # Konversi ke RGB jika mode gambar lain (e.g., RGBA, P)
-    if img.mode != 'RGB':
-        img = img.convert('RGB')
-    
-    draw = ImageDraw.Draw(img)
-    
-    # Hitung posisi watermark (di bagian bawah)
-    watermark_height = 250 if map_url else 150
-    watermark_position = (0, img.height - watermark_height, img.width, img.height)
-    
-    # Buat background semi-transparan
-    overlay = Image.new('RGBA', img.size, (255,255,255,0))
-    draw_overlay = ImageDraw.Draw(overlay)
-    draw_overlay.rectangle(watermark_position, fill=(255,255,255,180))
-    
-    # Gabungkan overlay dengan gambar utama
-    img = Image.alpha_composite(img.convert('RGBA'), overlay).convert('RGB')
-    draw = ImageDraw.Draw(img)
-    
-    # Gunakan font default atau custom font jika ada
+    """Create watermarked image with all required parameters"""
     try:
-        font_large = ImageFont.truetype("arial.ttf", 40)
-        font_medium = ImageFont.truetype("arial.ttf", 24)
-        font_small = ImageFont.truetype("arial.ttf", 18)
-    except:
-        font_large = ImageFont.load_default()
-        font_medium = ImageFont.load_default()
-        font_small = ImageFont.load_default()
-    
-    # Tulis teks watermark
-    text_x = 20
-    text_y = img.height - watermark_height + 20
-    
-    # Waktu besar
-    draw.text((text_x, text_y), time_str, font=font_large, fill=(0, 0, 0))
-    text_y += 50
-    
-    # Tanggal dan hari
-    date_day_text = f"{date_str}\n{day_str}"
-    draw.text((text_x, text_y), date_day_text, font=font_medium, fill=(0, 0, 0))
-    text_y += 60
-    
-    # Lokasi (dengan wrap text jika panjang)
-    lines = textwrap.wrap(location, width=40)
-    for line in lines:
-        draw.text((text_x, text_y), line, font=font_small, fill=(0, 0, 0))
-        text_y += 25
-    
-    # Nama pengguna
-    draw.text((text_x, text_y), name, font=font_medium, fill=(0, 0, 0))
-    
-    # Tambahkan peta jika ada
-    if map_url:
+        img = image.copy()
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+            
+        draw = ImageDraw.Draw(img)
+        watermark_height = 250 if map_url else 150
+        watermark_position = (0, img.height - watermark_height, img.width, img.height)
+        
+        # Create semi-transparent overlay
+        overlay = Image.new('RGBA', img.size, (255,255,255,0))
+        draw_overlay = ImageDraw.Draw(overlay)
+        draw_overlay.rectangle(watermark_position, fill=(255,255,255,180))
+        
+        # Combine images
+        img = Image.alpha_composite(img.convert('RGBA'), overlay).convert('RGB')
+        draw = ImageDraw.Draw(img)
+        
+        # Set fonts
         try:
-            response = requests.get(map_url)
-            map_img = Image.open(BytesIO(response.content))
-            map_img = map_img.resize((250, 150))
-            img.paste(map_img, (img.width - 270, img.height - 170))
+            font_large = ImageFont.truetype("arial.ttf", 40)
+            font_medium = ImageFont.truetype("arial.ttf", 24)
+            font_small = ImageFont.truetype("arial.ttf", 18)
         except:
-            st.warning("Gagal memuat peta")
-    
-    return img
+            font_large = ImageFont.load_default()
+            font_medium = ImageFont.load_default()
+            font_small = ImageFont.load_default()
+        
+        # Position watermark text
+        text_x = 20
+        text_y = img.height - watermark_height + 20
+        
+        # Add all watermark elements
+        draw.text((text_x, text_y), time_str, font=font_large, fill=(0, 0, 0))
+        text_y += 50
+        
+        date_day_text = f"{date_str}\n{day_str}"
+        draw.text((text_x, text_y), date_day_text, font=font_medium, fill=(0, 0, 0))
+        text_y += 60
+        
+        # Add wrapped location text
+        for line in textwrap.wrap(location, width=40):
+            draw.text((text_x, text_y), line, font=font_small, fill=(0, 0, 0))
+            text_y += 25
+        
+        # Add user name
+        draw.text((text_x, text_y), name, font=font_medium, fill=(0, 0, 0))
+        
+        # Add map if provided
+        if map_url:
+            try:
+                response = requests.get(map_url)
+                map_img = Image.open(BytesIO(response.content))
+                map_img = map_img.resize((250, 150))
+                img.paste(map_img, (img.width - 270, img.height - 170))
+            except Exception as e:
+                st.warning(f"Failed to load map: {str(e)}")
+        
+        return img
+        
+    except Exception as e:
+        st.error(f"Error creating watermark: {str(e)}")
+        return image
 
-# Fungsi untuk mendapatkan URL peta dari koordinat
-def get_map_url(latitude, longitude, api_key=None):
-    if api_key:
-        # Jika menggunakan Google Maps API
-        return f"https://maps.googleapis.com/maps/api/staticmap?center={latitude},{longitude}&zoom=15&size=400x200&maptype=roadmap&markers=color:red%7C{latitude},{longitude}&key={api_key}"
-    else:
-        # OpenStreetMap tanpa API key
-        return f"https://www.openstreetmap.org/export/embed.html?bbox={float(longitude)-0.01},{float(latitude)-0.01},{float(longitude)+0.01},{float(latitude)+0.01}&layer=mapnik&marker={latitude},{longitude}"
-
-# Fungsi untuk mengupdate metadata EXIF
+# Fungsi untuk update metadata EXIF
 def update_exif_metadata(image_file, datetime_original, latitude=None, longitude=None):
     """Update EXIF metadata with new datetime and GPS coordinates"""
     try:
@@ -103,7 +93,7 @@ def update_exif_metadata(image_file, datetime_original, latitude=None, longitude
             except:
                 exif_dict = {"0th": {}, "Exif": {}, "GPS": {}, "1st": {}}
         
-        # Format datetime for EXIF (YYYY:MM:DD HH:MM:SS)
+        # Format datetime for EXIF
         exif_datetime = datetime_original.strftime("%Y:%m:%d %H:%M:%S")
         
         # Update DateTime fields
@@ -141,6 +131,13 @@ def update_exif_metadata(image_file, datetime_original, latitude=None, longitude
     except Exception as e:
         st.warning(f"Could not update EXIF metadata: {str(e)}")
         return None
+
+# Fungsi untuk mendapatkan URL peta
+def get_map_url(latitude, longitude, api_key=None):
+    if api_key:
+        return f"https://maps.googleapis.com/maps/api/staticmap?center={latitude},{longitude}&zoom=15&size=400x200&maptype=roadmap&markers=color:red%7C{latitude},{longitude}&key={api_key}"
+    else:
+        return f"https://www.openstreetmap.org/export/embed.html?bbox={float(longitude)-0.01},{float(latitude)-0.01},{float(longitude)+0.01},{float(latitude)+0.01}&layer=mapnik&marker={latitude},{longitude}"
 
 # Konfigurasi halaman Streamlit
 st.set_page_config(page_title="Watermark Photo Tool", layout="wide")
@@ -190,14 +187,39 @@ uploaded_file = st.file_uploader("Upload foto Anda", type=["jpg", "jpeg", "png"]
 
 if uploaded_file is not None:
     try:
-        # First create the watermarked image
-        watermarked_img = create_watermark(...)
+        # Baca gambar
+        image = Image.open(uploaded_file)
         
-        # Then handle EXIF metadata
+        # Tampilkan gambar asli
+        st.subheader("Preview")
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.image(image, caption="Gambar Asli", use_column_width=True)
+        
+        # Generate map URL jika koordinat valid
+        map_url = None
+        if show_map and latitude and longitude:
+            try:
+                map_url = get_map_url(latitude, longitude)
+            except:
+                st.error("Koordinat tidak valid")
+        
+        # Buat watermark dengan semua parameter yang diperlukan
+        watermarked_img = create_watermark(
+            image=image,
+            time_str=time_str,
+            date_str=date_str,
+            day_str=day_str,
+            location=location,
+            name=name,
+            map_url=map_url if show_map else None
+        )
+        
+        # Update metadata EXIF jika diaktifkan
         exif_bytes = None
         if enable_geotag:
-            # Get the original file bytes for EXIF processing
-            uploaded_file.seek(0)  # Rewind the file pointer
+            uploaded_file.seek(0)  # Reset file pointer
             exif_bytes = update_exif_metadata(
                 image_file=uploaded_file,
                 datetime_original=datetime_combined,
@@ -205,61 +227,29 @@ if uploaded_file is not None:
                 longitude=longitude if latitude and longitude else None
             )
         
-        # Save the final image
-        buf = BytesIO()
-        watermarked_img.save(
-            buf,
-            format="JPEG",
-            quality=95,
-            exif=exif_bytes if exif_bytes else watermarked_img.info.get('exif')
-        )
-        byte_im = buf.getvalue()
-        
+        # Tampilkan hasil
+        with col2:
+            st.image(watermarked_img, caption="Gambar dengan Watermark", use_column_width=True)
+            
+            # Download button
+            buf = BytesIO()
+            watermarked_img.save(
+                buf,
+                format="JPEG",
+                quality=95,
+                exif=exif_bytes if exif_bytes else watermarked_img.info.get('exif')
+            )
+            byte_im = buf.getvalue()
+            
+            st.download_button(
+                label="Download Gambar",
+                data=byte_im,
+                file_name="watermarked_image.jpg",
+                mime="image/jpeg"
+            )
+    
     except Exception as e:
         st.error(f"Error processing image: {str(e)}")
-        
-    # Buat watermark
-    watermarked_img = create_watermark(
-        image, 
-        time_str, 
-        date_str, 
-        day_str, 
-        location, 
-        name,
-        map_url
-    )
-    
-    # Update metadata EXIF jika diaktifkan
-    exif_bytes = None
-    if enable_geotag:
-        exif_bytes = update_exif_metadata(
-            image=uploaded_file,
-            datetime_original=datetime_combined,
-            latitude=latitude if latitude and longitude else None,
-            longitude=longitude if latitude and longitude else None
-        )
-    
-    # Tampilkan hasil
-    with col2:
-        st.image(watermarked_img, caption="Gambar dengan Watermark", use_column_width=True)
-        
-        # Download button
-        buf = BytesIO()
-        
-        # Simpan dengan metadata EXIF jika ada
-        if exif_bytes:
-            watermarked_img.save(buf, format="JPEG", quality=95, exif=exif_bytes)
-        else:
-            watermarked_img.save(buf, format="JPEG", quality=95)
-            
-        byte_im = buf.getvalue()
-        
-        st.download_button(
-            label="Download Gambar",
-            data=byte_im,
-            file_name="watermarked_image.jpg",
-            mime="image/jpeg"
-        )
 
 # Petunjuk penggunaan
 with st.expander("Petunjuk Penggunaan"):
@@ -272,14 +262,6 @@ with st.expander("Petunjuk Penggunaan"):
        - Pastikan "Aktifkan Geotagging" dicentang
     5. Hasil akan muncul di sebelah kanan
     6. Klik **Download Gambar** untuk menyimpan dengan metadata baru
-    """)
-    st.markdown("""
-    **Catatan Geotagging:**
-    - Metadata EXIF akan diperbarui dengan:
-      - Tanggal/waktu baru
-      - Koordinat GPS (jika diberikan)
-    - Fitur ini bekerja untuk format JPEG
-    - Beberapa aplikasi mungkin perlu refresh untuk melihat metadata baru
     """)
 
 # Catatan tentang Google Maps API
