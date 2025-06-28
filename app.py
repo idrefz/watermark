@@ -3,87 +3,90 @@ from PIL import Image, ImageDraw, ImageFont
 import datetime
 import requests
 from io import BytesIO
-import textwrap
+import socket
+from requests.exceptions import RequestException, Timeout, ConnectionError
 import re
-from requests.exceptions import RequestException
 
-# Fungsi untuk mendapatkan alamat lengkap dengan penanganan error yang lebih baik
-def get_complete_address(lat, lon):
+# Fungsi untuk mendapatkan alamat dari koordinat dengan penanganan error lengkap
+def get_complete_address(latitude, longitude):
     try:
-        # Pastikan koordinat adalah angka valid
-        lat_num = float(lat)
-        lon_num = float(lon)
+        # Validasi dan format koordinat
+        lat_num = float(latitude)
+        lon_num = float(longitude)
+        coord_text = f"Koordinat: {lat_num:.6f}, {lon_num:.6f}"
         
-        url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={lat_num}&lon={lon_num}&zoom=18&addressdetails=1"
-        headers = {'User-Agent': 'WatermarkApp/1.0'}
-        
+        # Cek koneksi internet
         try:
-            response = requests.get(url, headers=headers, timeout=10)
-            response.raise_for_status()  # Akan raise error untuk status code 4xx/5xx
-            data = response.json()
-        except requests.exceptions.ConnectionError:
-            return "Error: Tidak dapat terhubung ke server alamat (cek internet atau server)"
-        except requests.exceptions.Timeout:
-            return "Error: Waktu koneksi habis (server terlalu lama merespon)"
-        except requests.exceptions.RequestException as e:
-            return f"Error: Gagal mendapatkan alamat - {str(e)}"
-        
-        if 'address' in data:
-            addr = data['address']
-            address_lines = []
+            socket.create_connection(("nominatim.openstreetmap.org", 80), timeout=5)
             
-            # Bangunan dan jalan
-            if addr.get('road'):
-                address_lines.append(f"Jl. {addr['road']}")
-                if addr.get('house_number'):
-                    address_lines[-1] += f" No. {addr['house_number']}"
+            # Request ke Nominatim API
+            url = f"https://nominatim.openstreetmap.org/reverse?format=json&lat={lat_num}&lon={lon_num}&addressdetails=1"
+            headers = {'User-Agent': 'WatermarkApp/1.0'}
             
-            # Wilayah administratif
-            if addr.get('village'):
-                address_lines.append(f"Kel. {addr['village']}")
-            elif addr.get('suburb'):
-                address_lines.append(f"Kel. {addr['suburb']}")
-            
-            if addr.get('subdistrict'):
-                address_lines.append(f"Kec. {addr['subdistrict']}")
-            elif addr.get('county'):
-                address_lines.append(f"Kec. {addr['county']}")
-            
-            if addr.get('city'):
-                address_lines.append(f"Kota {addr['city']}")
-            elif addr.get('town'):
-                address_lines.append(f"Kota {addr['town']}")
-            
-            if addr.get('state'):
-                address_lines.append(f"Prov. {addr['state']}")
-            
-            if addr.get('postcode'):
-                address_lines.append(f"Kode Pos: {addr['postcode']}")
-            
-            address_lines.append("Indonesia")
-            
-            # Format koordinat dengan presisi 6 digit
             try:
-                coord_text = f"Koordinat: {lat_num:.6f}, {lon_num:.6f}"
-                address_lines.append(coord_text)
-            except:
-                address_lines.append(f"Koordinat: {lat}, {lon}")
+                response = requests.get(url, headers=headers, timeout=10)
+                response.raise_for_status()
+                data = response.json()
+                
+                if 'address' in data:
+                    addr = data['address']
+                    lines = []
+                    
+                    # Bangunan dan jalan
+                    if addr.get('road'):
+                        road = f"Jl. {addr['road']}"
+                        if addr.get('house_number'):
+                            road += f" No. {addr['house_number']}"
+                        lines.append(road)
+                    
+                    # Wilayah administratif
+                    if addr.get('village'):
+                        lines.append(f"Kel. {addr['village']}")
+                    elif addr.get('suburb'):
+                        lines.append(f"Kel. {addr['suburb']}")
+                    
+                    if addr.get('subdistrict'):
+                        lines.append(f"Kec. {addr['subdistrict']}")
+                    elif addr.get('county'):
+                        lines.append(f"Kec. {addr['county']}")
+                    
+                    if addr.get('city'):
+                        lines.append(f"Kota {addr['city']}")
+                    elif addr.get('town'):
+                        lines.append(f"Kota {addr['town']}")
+                    
+                    if addr.get('state'):
+                        lines.append(f"Prov. {addr['state']}")
+                    
+                    if addr.get('postcode'):
+                        lines.append(f"Kode Pos: {addr['postcode']}")
+                    
+                    lines.append("Indonesia")
+                    lines.append(coord_text)
+                    return "\n".join(lines)
+                
+            except Timeout:
+                return f"{coord_text}\n(Timeout saat mengambil alamat)"
+            except ConnectionError:
+                return f"{coord_text}\n(Tidak ada koneksi internet)"
+            except RequestException as e:
+                return f"{coord_text}\n(Error API: {str(e)})"
             
-            return "\n".join([line for line in address_lines if line.strip()])
-        
-        return f"Koordinat: {lat}, {lon}"
-    
+        except (socket.gaierror, OSError):
+            return f"{coord_text}\n(Tidak ada koneksi internet)"
+            
     except ValueError:
         return "Error: Format koordinat tidak valid (gunakan titik sebagai desimal)"
     except Exception as e:
-        return f"Error: {str(e)}"
+        return f"Error tak terduga: {str(e)}"
+    
+    return coord_text
 
-# Fungsi untuk mendapatkan peta static (menggunakan OpenStreetMap)
-def get_static_map(lat, lon, size=(600, 300), zoom=15):
+# Fungsi untuk mendapatkan peta static dengan penanganan error
+def get_static_map(latitude, longitude, zoom=16, size=(600, 300)):
     try:
-        # Konversi ke float untuk memastikan format benar
-        lat_num = float(lat)
-        lon_num = float(lon)
+        lat_num = float(latitude)
+        lon_num = float(longitude)
         
         # Gunakan Yandex Static Maps sebagai alternatif gratis
         url = f"https://static-maps.yandex.ru/1.x/?ll={lon_num},{lat_num}&z={zoom}&size={size[0]},{size[1]}&l=map&pt={lon_num},{lat_num},pm2rdl"
@@ -91,14 +94,14 @@ def get_static_map(lat, lon, size=(600, 300), zoom=15):
         try:
             response = requests.get(url, timeout=10)
             response.raise_for_status()
-            return url  # Return URL karena kita akan memprosesnya nanti
-        except requests.exceptions.ConnectionError:
-            st.warning("Tidak dapat terhubung ke server peta (cek koneksi internet)")
+            return Image.open(BytesIO(response.content))
+        except Timeout:
+            st.warning("Timeout saat memuat peta")
             return None
-        except requests.exceptions.Timeout:
-            st.warning("Waktu koneksi ke server peta habis")
+        except ConnectionError:
+            st.warning("Tidak dapat terhubung ke server peta")
             return None
-        except requests.exceptions.RequestException as e:
+        except RequestException as e:
             st.warning(f"Gagal memuat peta: {str(e)}")
             return None
             
@@ -109,8 +112,8 @@ def get_static_map(lat, lon, size=(600, 300), zoom=15):
         st.warning(f"Error saat memproses peta: {str(e)}")
         return None
 
-# Fungsi utama untuk membuat watermark
-def create_modern_watermark(image, time_str, date_day_str, location, temp_c="33°C", temp_f="91°F", map_url=None):
+# Fungsi untuk membuat watermark dengan style modern
+def create_modern_watermark(image, time_str, date_day_str, location, temp_c="33°C", temp_f="91°F", map_img=None):
     try:
         img = image.copy()
         if img.mode != 'RGB':
@@ -170,10 +173,8 @@ def create_modern_watermark(image, time_str, date_day_str, location, temp_c="33�
         draw.text((img.width - margin - temp_width, text_y), temp_text, font=font_large, fill=(255,255,255))
         
         # Tambahkan peta jika ada
-        if map_url:
+        if map_img:
             try:
-                response = requests.get(map_url)
-                map_img = Image.open(BytesIO(response.content))
                 map_size = (250, 150)
                 map_img = map_img.resize(map_size)
                 
@@ -190,7 +191,7 @@ def create_modern_watermark(image, time_str, date_day_str, location, temp_c="33�
         st.error(f"Error membuat watermark: {str(e)}")
         return image
 
-# Konfigurasi Streamlit
+# ========== Streamlit UI ==========
 st.set_page_config(page_title="Watermark Tool Pro", layout="wide")
 st.title("📷 Watermark Tool dengan Alamat & Peta")
 
@@ -206,7 +207,7 @@ with st.sidebar:
         lon = st.text_input("Longitude", "106.1633", help="Contoh: 106.1633")
     
     # Tombol untuk mendapatkan alamat
-    if st.button("Dapatkan Alamat dari Koordinat"):
+    if st.button("📍 Dapatkan Alamat dari Koordinat"):
         if lat and lon:
             with st.spinner("Mengambil data alamat..."):
                 address = get_complete_address(lat, lon)
@@ -248,17 +249,17 @@ with st.sidebar:
         temp_f = st.text_input("°F", "91")
     
     # Toggle peta
-    show_map = st.checkbox("Tampilkan Peta di Watermark", value=True)
+    show_map = st.checkbox("🗺️ Tampilkan Peta di Watermark", value=True)
 
 # Upload gambar
-uploaded_file = st.file_uploader("Unggah Foto Anda", type=["jpg", "jpeg", "png"])
+uploaded_file = st.file_uploader("📤 Unggah Foto Anda", type=["jpg", "jpeg", "png"])
 
 if uploaded_file is not None:
     try:
         image = Image.open(uploaded_file)
         
         # Dapatkan peta
-        map_url = None
+        map_img = None
         if show_map and lat and lon:
             # Coba ekstrak koordinat dari alamat jika ada
             coord_match = re.search(r"Koordinat:\s*(-?\d+\.\d+),\s*(-?\d+\.\d+)", location)
@@ -266,8 +267,8 @@ if uploaded_file is not None:
                 lat, lon = coord_match.groups()
             
             with st.spinner("Memuat peta..."):
-                map_url = get_static_map(lat, lon)
-                if not map_url:
+                map_img = get_static_map(lat, lon)
+                if not map_img:
                     st.warning("Tidak dapat menampilkan peta")
         
         # Buat watermark
@@ -278,7 +279,7 @@ if uploaded_file is not None:
             location=location,
             temp_c=f"{temp_c}°C",
             temp_f=f"{temp_f}°F",
-            map_url=map_url
+            map_img=map_img
         )
         
         # Tampilkan hasil
@@ -292,7 +293,7 @@ if uploaded_file is not None:
             buf = BytesIO()
             watermarked_img.save(buf, format="JPEG", quality=95)
             st.download_button(
-                "Download Gambar",
+                "⬇️ Download Gambar",
                 buf.getvalue(),
                 "watermarked_pro.jpg",
                 "image/jpeg"
@@ -302,13 +303,13 @@ if uploaded_file is not None:
         st.error(f"Error memproses gambar: {str(e)}")
 
 # Panduan penggunaan
-with st.expander("Panduan Lengkap"):
+with st.expander("ℹ️ Panduan Lengkap"):
     st.markdown("""
     **Fitur Utama:**
-    1. Konversi otomatis koordinat → alamat lengkap
-    2. Tampilan peta dalam watermark
-    3. Font besar untuk keterbacaan
-    4. Format alamat standar Indonesia
+    - Konversi otomatis koordinat → alamat lengkap
+    - Tampilan peta dalam watermark
+    - Font besar untuk keterbacaan
+    - Format alamat standar Indonesia
     
     **Cara Menggunakan:**
     1. Masukkan koordinat (contoh: -6.1101, 106.1633)
