@@ -97,7 +97,7 @@ def create_complete_watermark(image, time_str, date_day_str, location, temp_c="3
             img = img.convert('RGB')
             
         draw = ImageDraw.Draw(img)
-        wm_height = int(img.height * 0.25)
+        wm_height = int(img.height * 0.20)
         wm_position = (0, img.height - wm_height, img.width, img.height)
         
         # Background watermark
@@ -109,10 +109,10 @@ def create_complete_watermark(image, time_str, date_day_str, location, temp_c="3
         
         # Font settings
         try:
-            font_large = ImageFont.truetype("arial.ttf", 36)
-            font_medium = ImageFont.truetype("arial.ttf", 22)
-            font_small = ImageFont.truetype("arial.ttf", 16)
-            font_bold = ImageFont.truetype("arialbd.ttf", 26)
+            font_large = ImageFont.truetype("arial.ttf", 50)
+            font_medium = ImageFont.truetype("arial.ttf", 40)
+            font_small = ImageFont.truetype("arial.ttf", 23)
+            font_bold = ImageFont.truetype("arialbd.ttf", 30)
         except:
             font_large = ImageFont.load_default()
             font_medium = ImageFont.load_default()
