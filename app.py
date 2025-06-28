@@ -5,224 +5,184 @@ import requests
 from io import BytesIO
 import textwrap
 
-# Style Configuration
-WATERMARK_BG_COLOR = (0, 0, 0, 160)  # Semi-transparent black
-TEXT_COLOR = (255, 255, 255)         # White
-LINE_COLOR = (255, 255, 255, 200)    # Semi-transparent white
-MAP_BG_COLOR = (40, 40, 40)          # Dark gray for map background
-
-def get_optimal_font_sizes(img_height):
-    """Calculate font sizes based on image height"""
-    base_size = max(16, img_height // 25)  # Minimum 16px
-    return {
-        'title': int(base_size * 1.6),
-        'address': int(base_size * 1.1),
-        'datetime': int(base_size * 1.4),
-        'temperature': int(base_size * 1.3)
-    }
-
-def get_osm_map(latitude, longitude, width=400, height=200, zoom=15):
-    """Get map from OpenStreetMap with error handling"""
+# Fungsi untuk membuat watermark dengan font besar
+def create_large_font_watermark(image, time_str, date_day_str, location, temp_c="33°C", temp_f="91°F", map_img=None):
     try:
-        url = f"https://maps.geoapify.com/v1/staticmap?style=osm-carto&width={width}&height={height}&center=lonlat:{longitude},{latitude}&zoom={zoom}&marker=lonlat:{longitude},{latitude};color:%23ff0000;size:medium"
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        return Image.open(BytesIO(response.content))
-    except Exception as e:
-        st.warning(f"Map loading failed: {str(e)}")
-        return None
-
-def create_professional_watermark(original_img, time_str, date_day_str, location, temp_c="33", temp_f="91", map_img=None):
-    """Create watermark with professional layout"""
-    try:
-        img = original_img.copy().convert('RGB')
+        img = image.copy()
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+            
         draw = ImageDraw.Draw(img)
         
-        # Calculate sizes
-        img_width, img_height = img.size
-        font_sizes = get_optimal_font_sizes(img_height)
-        wm_height = int(img_height * 0.35)
-        margin = int(img_width * 0.03)
+        # Hitung ukuran watermark (40% dari tinggi gambar untuk font besar)
+        wm_height = int(img.height * 0.4)
+        wm_position = (0, img.height - wm_height, img.width, img.height)
         
-        # Create watermark background
-        overlay = Image.new('RGBA', img.size, (0, 0, 0, 0))
+        # Buat background semi-transparan gelap
+        overlay = Image.new('RGBA', img.size, (0,0,0,0))
         draw_overlay = ImageDraw.Draw(overlay)
-        draw_overlay.rectangle((0, img_height - wm_height, img_width, img_height), fill=WATERMARK_BG_COLOR)
+        draw_overlay.rectangle(wm_position, fill=(0,0,0,180))  # Lebih gelap untuk kontras font
         img = Image.alpha_composite(img.convert('RGBA'), overlay).convert('RGB')
         draw = ImageDraw.Draw(img)
         
-        # Load fonts (with fallback)
+        # Ukuran font yang lebih besar
         try:
-            font_title = ImageFont.truetype("arialbd.ttf", font_sizes['title'])
-            font_address = ImageFont.truetype("arial.ttf", font_sizes['address'])
-            font_datetime = ImageFont.truetype("arial.ttf", font_sizes['datetime'])
-            font_temp = ImageFont.truetype("arial.ttf", font_sizes['temperature'])
+            font_title = ImageFont.truetype("arialbd.ttf", 42)  # Judul lebih besar
+            font_large = ImageFont.truetype("arial.ttf", 36)    # Untuk waktu dan tanggal
+            font_medium = ImageFont.truetype("arial.ttf", 28)   # Untuk alamat
+            font_small = ImageFont.truetype("arial.ttf", 24)    # Untuk detail kecil
         except:
-            font_title = ImageFont.load_default()
-            font_address = ImageFont.load_default()
-            font_datetime = ImageFont.load_default()
-            font_temp = ImageFont.load_default()
+            # Fallback ke font default dengan ukuran besar
+            font_title = ImageFont.load_default(size=42)
+            font_large = ImageFont.load_default(size=36)
+            font_medium = ImageFont.load_default(size=28)
+            font_small = ImageFont.load_default(size=24)
         
-        # Position tracking
+        # Posisi teks
+        margin = 25  # Margin lebih besar
         text_x = margin
-        text_y = img_height - wm_height + margin
+        text_y = img.height - wm_height + margin
         
-        # Draw address lines
-        loc_lines = [line.strip() for line in location.split('\n') if line.strip()][:6]  # Max 6 lines
+        # Tulis lokasi dengan format khusus
+        loc_lines = location.split('\n')
+        max_lines = 6  # Jumlah baris lebih sedikit karena font besar
         
-        if loc_lines:
-            # First line as title
-            draw.text((text_x, text_y), loc_lines[0], font=font_title, fill=TEXT_COLOR)
-            text_y += int(font_sizes['title'] * 1.3)
-            
-            # Subsequent lines
-            for line in loc_lines[1:]:
-                draw.text((text_x, text_y), line, font=font_address, fill=TEXT_COLOR)
-                text_y += int(font_sizes['address'] * 1.2)
+        for i, line in enumerate(loc_lines[:max_lines]):
+            if i == 0:
+                draw.text((text_x, text_y), line, font=font_title, fill=(255,255,255))
+                text_y += 50
+            else:
+                draw.text((text_x, text_y), line, font=font_medium, fill=(255,255,255))
+                text_y += 35
         
-        # Separator line
-        draw.line((text_x, text_y + 5, img_width - margin, text_y + 5), fill=LINE_COLOR, width=1)
-        text_y += int(font_sizes['address'] * 0.8)
+        # Garis pemisah tebal
+        draw.line((text_x, text_y+5, img.width - margin, text_y+5), fill=(255,255,255), width=2)
+        text_y += 20
         
-        # Date and time
-        datetime_text = f"{date_day_str} {time_str}"
-        draw.text((text_x, text_y), datetime_text, font=font_datetime, fill=TEXT_COLOR)
+        # Info tanggal dan waktu
+        date_time_text = f"{date_day_str}  {time_str}"
+        draw.text((text_x, text_y), date_time_text, font=font_large, fill=(255,255,255))
         
-        # Temperature
-        temp_text = f"{temp_c}°C / {temp_f}°F"
-        temp_width = draw.textlength(temp_text, font=font_temp)
-        draw.text((img_width - margin - temp_width, text_y), temp_text, font=font_temp, fill=TEXT_COLOR)
+        # Info suhu di kanan
+        temp_text = f"{temp_c} / {temp_f}"
+        temp_width = draw.textlength(temp_text, font=font_large)
+        draw.text((img.width - margin - temp_width, text_y), temp_text, font=font_large, fill=(255,255,255))
+        text_y += 45
         
-        # Add map if available
+        # Tambahkan peta kecil jika ada (ukuran disesuaikan)
         if map_img:
-            map_width = min(int(img_width * 0.3), 300)  # Max 300px
-            map_height = min(int(wm_height * 0.6), 200) # Max 200px
-            map_img = map_img.resize((map_width, map_height))
+            map_size = (min(250, img.width//2), min(150, wm_height//2))
+            map_img = map_img.resize(map_size)
             
-            map_x = img_width - map_width - margin
-            map_y = img_height - wm_height + margin
+            # Background untuk peta
+            map_bg = Image.new('RGB', (map_size[0]+10, map_size[1]+10), (50,50,50))
+            img.paste(map_bg, (img.width - map_size[0] - margin - 5, img.height - wm_height + margin - 5))
             
-            # Map background
-            map_bg = Image.new('RGB', (map_width + 10, map_height + 10), MAP_BG_COLOR)
-            img.paste(map_bg, (map_x - 5, map_y - 5))
-            img.paste(map_img, (map_x, map_y))
+            img.paste(map_img, (img.width - map_size[0] - margin, img.height - wm_height + margin))
         
         return img
-    
     except Exception as e:
-        st.error(f"Watermark creation error: {str(e)}")
-        return original_img
+        st.error(f"Error membuat watermark: {str(e)}")
+        return image
 
-# Streamlit UI
-st.set_page_config(page_title="Professional Watermark Tool", layout="wide", page_icon="📷")
-st.title("📷 Professional Watermark Tool")
+# Konfigurasi Streamlit
+st.set_page_config(page_title="Watermark Font Besar", layout="wide")
+st.title("📷 Watermark Tool dengan Font Besar")
 
+# Sidebar untuk input
 with st.sidebar:
-    st.header("Settings", divider="gray")
+    st.header("Pengaturan")
     
-    # Location Input
+    # Input alamat
     location = st.text_area(
-        "Full Address",
-        "Jl. Contoh No. 123\nKelurahan Contoh\nKecamatan Contoh\nKota/Kabupaten Contoh\nProvinsi Contoh\nKode Pos 12345",
-        height=150,
-        help="Enter complete address information"
+        "Alamat Lengkap", 
+        "Jl. Contoh No. 123\nKel. Contoh\nKec. Contoh\nKota/Kab. Contoh\nProv. Contoh\nKode Pos: 12345\nIndonesia\nKoordinat: -6.1101, 106.1633", 
+        height=150
     )
     
-    # Map Coordinates
-    with st.expander("Map Settings", expanded=True):
-        col1, col2 = st.columns(2)
-        with col1:
-            lat = st.text_input("Latitude", "-6.2088", help="Example: -6.2088")
-        with col2:
-            lon = st.text_input("Longitude", "106.8456", help="Example: 106.8456")
-        
-        show_map = st.checkbox("Show Map", value=True, help="Display map on watermark")
+    # Tanggal dan waktu
+    col1, col2 = st.columns(2)
+    with col1:
+        date = st.date_input("Tanggal", datetime.date.today())
+    with col2:
+        time = st.time_input("Waktu", datetime.time(13, 5))
     
-    # Date & Time
-    with st.expander("Date & Time", expanded=True):
-        col1, col2 = st.columns(2)
-        with col1:
-            date = st.date_input("Date", datetime.date.today())
-        with col2:
-            time = st.time_input("Time", datetime.time(13, 30))
-    
-    # Temperature
-    with st.expander("Temperature", expanded=False):
-        col1, col2 = st.columns(2)
-        with col1:
-            temp_c = st.text_input("°C", "33")
-        with col2:
-            temp_f = st.text_input("°F", "91")
-    
-    # Format strings
-    days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-    day_str = days[date.weekday()][:3]
-    date_day_str = f"{date.strftime('%Y-%m-%d')} ({day_str})"
+    # Format tanggal dan hari
+    days = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"]
+    day_str = days[date.weekday()]
+    date_day_str = f"{date.strftime('%Y-%m-%d')} ({day_str[:3]})"
     time_str = time.strftime("%I:%M%p").lower()
-
-# File Upload
-uploaded_file = st.file_uploader("Upload Image", type=["jpg", "jpeg", "png"], accept_multiple_files=False)
-
-if uploaded_file:
-    try:
-        original_img = Image.open(uploaded_file)
-        
-        # Get map image
-        map_image = None
-        if show_map and lat and lon:
-            with st.spinner("Loading map..."):
-                map_image = get_osm_map(lat, lon)
-        
-        # Create watermark
-        with st.spinner("Applying watermark..."):
-            watermarked_img = create_professional_watermark(
-                original_img,
-                time_str=time_str,
-                date_day_str=date_day_str,
-                location=location,
-                temp_c=temp_c,
-                temp_f=temp_f,
-                map_img=map_image
-            )
-        
-        # Display results
-        col1, col2 = st.columns(2)
-        with col1:
-            st.image(original_img, caption="Original Image", use_column_width=True)
-        with col2:
-            st.image(watermarked_img, caption="Watermarked Image", use_column_width=True)
-            
-            # Download button
-            buf = BytesIO()
-            watermarked_img.save(buf, format="JPEG", quality=95)
-            st.download_button(
-                "Download Watermarked Image",
-                buf.getvalue(),
-                "professional_watermark.jpg",
-                "image/jpeg",
-                type="primary"
-            )
     
-    except Exception as e:
-        st.error(f"Error processing image: {str(e)}")
+    # Suhu
+    col1, col2 = st.columns(2)
+    with col1:
+        temp_c = st.text_input("°C", "33")
+    with col2:
+        temp_f = st.text_input("°F", "91")
+    
+    # Toggle peta
+    show_map = st.checkbox("Tampilkan Peta", value=False)
 
-# Instructions
-with st.expander("Usage Guide", expanded=False):
+# Upload gambar
+uploaded_file = st.file_uploader("Unggah Foto", type=["jpg", "jpeg", "png"])
+
+if uploaded_file is not None:
+    # Baca gambar
+    image = Image.open(uploaded_file)
+    
+    # Dapatkan peta (opsional)
+    map_img = None
+    if show_map:
+        # Contoh: Gunakan koordinat dari alamat jika ada
+        try:
+            coord_part = [line for line in location.split('\n') if "Koordinat:" in line]
+            if coord_part:
+                coords = coord_part[0].split(":")[1].strip().split(",")
+                lat, lon = coords[0].strip(), coords[1].strip()
+                map_img = get_osm_map(lat, lon)
+        except:
+            st.warning("Tidak bisa memuat peta. Pastikan format koordinat benar.")
+    
+    # Buat watermark
+    watermarked_img = create_large_font_watermark(
+        image=image,
+        time_str=time_str,
+        date_day_str=date_day_str,
+        location=location,
+        temp_c=f"{temp_c}°C",
+        temp_f=f"{temp_f}°F",
+        map_img=map_img
+    )
+    
+    # Tampilkan hasil
+    col1, col2 = st.columns(2)
+    with col1:
+        st.image(image, caption="Original", use_column_width=True)
+    with col2:
+        st.image(watermarked_img, caption="Watermark Font Besar", use_column_width=True)
+        
+        # Download
+        buf = BytesIO()
+        watermarked_img.save(buf, format="JPEG", quality=95)
+        st.download_button(
+            "Download Gambar",
+            buf.getvalue(),
+            "watermarked_large_font.jpg",
+            "image/jpeg"
+        )
+
+# Panduan
+with st.expander("Panduan Penggunaan"):
     st.markdown("""
-    **Professional Watermark Features:**
-    - Clean, readable text with optimal sizing
-    - Responsive layout adapts to image size
-    - Integrated map from coordinates
-    - Professional color scheme
+    **Fitur Font Besar:**
+    - Ukuran font lebih besar untuk keterbacaan
+    - Judul alamat: 42px
+    - Alamat: 28px
+    - Tanggal/waktu: 36px
+    - Suhu: 36px
     
-    **Tips for Best Results:**
-    1. Use high-quality images (min. 1200px width recommended)
-    2. Keep address concise (4-6 lines ideal)
-    3. Verify coordinates for accurate map display
-    4. For portrait images, consider reducing text lines
-    
-    **Map Notes:**
-    - Uses OpenStreetMap via Geoapify
-    - Free tier allows 3000 requests/day
-    - Attribution not required but appreciated
+    **Tips:**
+    - Untuk hasil terbaik, gunakan foto beresolusi tinggi
+    - Alamat direkomendasikan maksimal 6-7 baris
+    - Background gelap membantu kontras teks
     """)
