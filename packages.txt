@@ -1,0 +1,3 @@
+libexif12
+libjpeg-turbo8
+zlib1g
