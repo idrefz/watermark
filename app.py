@@ -97,7 +97,7 @@ def create_complete_watermark(image, time_str, date_day_str, location, temp_c="3
             img = img.convert('RGB')
             
         draw = ImageDraw.Draw(img)
-        wm_height = int(img.height * 0.35)
+        wm_height = int(img.height * 0.25)
         wm_position = (0, img.height - wm_height, img.width, img.height)
         
         # Background watermark
